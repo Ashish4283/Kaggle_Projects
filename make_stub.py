@@ -41,28 +41,40 @@ Then **Run all**. Cell 2 stops with one plain line if either switch is wrong.
 
     md("## 1 - Get the latest code"),
     code("""
-import pathlib, shutil, subprocess, sys
+import importlib, os, pathlib, shutil, subprocess, sys
 
 REPO = "https://github.com/Ashish4283/Kaggle_Projects.git"
 HERE = pathlib.Path("/kaggle/working" if pathlib.Path("/kaggle").is_dir() else "/content")
 MINE = HERE / "Kaggle_Projects"
 
+# Stand somewhere that definitely exists before doing anything else. A previous run of this cell
+# deletes MINE, and if the kernel happened to be sitting in it the directory goes out from under the
+# process - after which EVERY subprocess fails with "Unable to read current working directory", before
+# it has even started. Nothing about that error mentions the real cause.
+HERE.mkdir(parents=True, exist_ok=True)
+os.chdir(HERE)
+
+ok = False
 if (MINE / ".git").is_dir():
-    subprocess.run(["git", "-C", str(MINE), "pull", "--ff-only", "-q"], check=False)
-    print("pulled the latest")
-else:
+    pulled = subprocess.run(["git", "-C", str(MINE), "pull", "--ff-only"],
+                            capture_output=True, text=True, cwd=str(HERE))
+    ok = pulled.returncode == 0
+    print("pulled the latest" if ok else "could not pull; cloning again")
+
+if not ok:
     shutil.rmtree(MINE, ignore_errors=True)
+    os.chdir(HERE)                                   # ...and again, in case that was where we stood
     done = subprocess.run(["git", "clone", "--depth", "1", REPO, str(MINE)],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, cwd=str(HERE),
+                          env=dict(os.environ, GIT_TERMINAL_PROMPT="0"))
     if done.returncode:
-        print(done.stderr.strip()[-800:])
-        raise SystemExit("could not clone the project repo")
+        print((done.stderr or done.stdout).strip()[-800:])
+        raise SystemExit("could not clone the project repo - git's words are above")
     print("cloned")
 
 sys.path.insert(0, str(MINE / "castforge"))
 import boot
-import importlib
-importlib.reload(boot)          # so a pull actually takes effect without restarting the kernel
+importlib.reload(boot)          # so a pull takes effect without restarting the kernel
 print("boot.py loaded from", MINE / "castforge")
 """),
 
